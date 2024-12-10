@@ -110,7 +110,7 @@ class NFeAdapter(DocumentoElectronicoAdapter, NFe):
             chNFe=chave,
         )
 
-        # Check if the method ´_get_ws_endpoint´ exists to ensure compatibility 
+        # Check if the method ´_get_ws_endpoint´ exists to ensure compatibility
         # with different versions of the erpbrasil.edoc library.
         if hasattr(self, '_get_ws_endpoint'):
             url = self._get_ws_endpoint(WS_NFE_CONSULTA)
@@ -175,3 +175,18 @@ class MDFeAdapter(DocumentoElectronicoAdapter, MDFe):
         cert_tag.text = base64.b64encode(cert_tag.text.encode())
 
         return etree.tostring(xml_assinado).decode()
+
+    def _post(self, raiz, url, operacao, classe):
+
+        if is_dataclass(raiz):
+            xml_string, xml_etree = self.render_edoc_xsdata(raiz)
+        else:
+            xml_etree = xml_string = raiz
+        with self._transmissao.cliente(url):
+            retorno = self._transmissao.enviar(operacao, xml_etree)
+            if is_dataclass(classe):
+                return analisar_retorno_raw_xsdata(
+                    operacao, raiz, xml_string, retorno, classe
+                )
+            else:
+                return analisar_retorno_raw(operacao, raiz, xml_string, retorno, classe)
