@@ -52,6 +52,39 @@ def analisar_retorno_raw_xsdata(operacao, raiz, xml, retorno, classe):
 
 
 class DocumentoElectronicoAdapter(DocumentoEletronico):
+    def _unescape_embedded_xml_blocks(self, xml: str) -> str:
+        """
+        Unescape embedded XML blocks stored as escaped text inside specific tags.
+
+        Context:
+        - Some tags (e.g. IBSCBS/IBSCBSTot) are currently represented in the bindings
+          as Char fields, so xsdata serializes their content as escaped text.
+        - SEFAZ schema expects element-only content inside these tags.
+        - We must fix it *before* converting to etree and *before* signing/sending.
+        """
+
+        def _unescape_xml_content(content: str) -> str:
+            # Order matters: &amp; must be replaced last to avoid double unescaping.
+            content = content.replace("&lt;", "<")
+            content = content.replace("&gt;", ">")
+            content = content.replace("&quot;", '"')
+            content = content.replace("&amp;", "&")
+            return content
+
+        def _unescape_block(tag: str, xml_in: str) -> str:
+            # Support optional prefixes and attributes on the opening tag.
+            pattern = rf"(<(?:\w+:)?{tag}\b[^>]*>)(.*?)(</(?:\w+:)?{tag}>)"
+            return re.sub(
+                pattern,
+                lambda m: m.group(1) + _unescape_xml_content(m.group(2)) + m.group(3),
+                xml_in,
+                flags=re.DOTALL,
+            )
+
+        xml = _unescape_block("IBSCBS", xml)
+        xml = _unescape_block("IBSCBSTot", xml)
+        return xml
+
     def render_edoc_xsdata(self, edoc, pretty_print=False):
         """
         Same as render_edoc but compatible with xsdata bindings.
@@ -68,6 +101,7 @@ class DocumentoElectronicoAdapter(DocumentoEletronico):
             ns_map = None
 
         xml_string = serializer.render(obj=edoc, ns_map=ns_map)
+        xml_string = self._unescape_embedded_xml_blocks(xml_string)
         return xml_string, etree.fromstring(xml_string.encode())
 
     def _post(self, raiz, url, operacao, classe):
